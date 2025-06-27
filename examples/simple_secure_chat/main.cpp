@@ -274,6 +274,19 @@ protected:
     Serial.println("   ERROR: timed out, no ACK.");
   }
 
+  void onLocationSharing(double lat, double lng) override {
+    // Store location in preferences
+    _prefs.node_lat = lat;
+    _prefs.node_lon = lng;
+    savePrefs();
+    
+    // Send a self-advert so the app will update our position
+    auto pkt = createSelfAdvert(_prefs.node_name, lat, lng);
+    if (pkt) {
+      sendZeroHop(pkt);
+    }
+  }
+
 public:
   MyMesh(mesh::Radio& radio, StdRNG& rng, mesh::RTCClock& rtc, SimpleMeshTables& tables)
      : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables)

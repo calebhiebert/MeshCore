@@ -553,6 +553,44 @@ uint32_t MyMesh::calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t
 
 void MyMesh::onSendTimeout() {}
 
+void MyMesh::onLocationSharing(double lat, double lng) {
+  // Update sensors location data 
+  sensors.node_lat = lat;
+  sensors.node_lon = lng;
+  
+  // Save the location to preferences
+  savePrefs();
+  
+  // Simulate receiving a self-advert locally (instead of broadcasting over radio)
+  // This will trigger the same UI updates as receiving an advert
+  mesh::Packet* pkt;
+  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+    pkt = createSelfAdvert(_prefs.node_name);
+  } else {
+    pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
+  }
+  
+  if (pkt) {
+    // Create a ContactInfo for ourselves to simulate the advert reception
+    ContactInfo self_contact;
+    memset(&self_contact, 0, sizeof(self_contact));
+    self_contact.id = self_id;
+    StrHelper::strncpy(self_contact.name, _prefs.node_name, sizeof(self_contact.name));
+    self_contact.type = ADV_TYPE_CHAT;
+    self_contact.gps_lat = (int32_t)(lat * 1e6);
+    self_contact.gps_lon = (int32_t)(lng * 1e6);
+    self_contact.last_advert_timestamp = getRTCClock()->getCurrentTime();
+    self_contact.lastmod = getRTCClock()->getCurrentTime();
+    
+    // Simulate discovering ourselves (path_len = 0 for local/zero-hop)
+    onDiscoveredContact(self_contact, false, 0, nullptr);
+    
+    releasePacket(pkt); // Clean up the packet we created
+  }
+  
+  MESH_DEBUG_PRINTLN("Location sharing: Stored location lat=%.6f, lng=%.6f in prefs and simulated local self-advert", lat, lng);
+}
+
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store) {

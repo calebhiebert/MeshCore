@@ -190,7 +190,7 @@ void setup() {
   sensors.setMeshForLocationSharing(&the_mesh);
   // Force enable location sharing for testing
   the_mesh.setLocationSharingEnabled(true);
-  the_mesh.setLocationSharingInterval(1000 * 60);
+  the_mesh.setLocationSharingInterval(1000 * 40);
   #endif
 
 #ifdef DISPLAY_CLASS

@@ -106,6 +106,9 @@ protected:
   virtual uint8_t onContactRequest(const ContactInfo& contact, uint32_t sender_timestamp, const uint8_t* data, uint8_t len, uint8_t* reply) = 0;
   virtual void onContactResponse(const ContactInfo& contact, const uint8_t* data, uint8_t len) = 0;
 
+  // called when we send our location to others - override to store location in prefs and send self-advert
+  virtual void onLocationSharing(double lat, double lng) { }
+
   // storage concepts, for sub-classes to override/implement
   virtual int  getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) { return 0; }  // not implemented
   virtual bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) { return false; }

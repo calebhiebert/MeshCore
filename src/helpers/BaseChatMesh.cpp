@@ -844,6 +844,9 @@ void BaseChatMesh::sendLocationUpdates() {
     return; // Location data is stale
   }
 
+  // Store our own location and send a self-advert
+  onLocationSharing(current_lat, current_lng);
+
   char location_msg[64];
   snprintf(location_msg, sizeof(location_msg), "!!latlng!!%.6f,%.6f", current_lat, current_lng);
   MESH_DEBUG_PRINTLN("Location sharing: Sending message: %s", location_msg);
