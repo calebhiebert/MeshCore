@@ -144,12 +144,46 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
 }
 
 void UITask::renderBatteryIndicator(uint16_t batteryMilliVolts) {
-  // Convert millivolts to percentage
-  const int minMilliVolts = 3000; // Minimum voltage (e.g., 3.0V)
-  const int maxMilliVolts = 4200; // Maximum voltage (e.g., 4.2V)
-  int batteryPercentage = ((batteryMilliVolts - minMilliVolts) * 100) / (maxMilliVolts - minMilliVolts);
-  if (batteryPercentage < 0) batteryPercentage = 0; // Clamp to 0%
-  if (batteryPercentage > 100) batteryPercentage = 100; // Clamp to 100%
+  // Li-ion voltage curve approximation with 1% resolution (voltage, percentage pairs)
+  const struct { uint16_t voltage; uint8_t percentage; } liionCurve[] = {
+    {2500, 0},    // 2.5V = 0%
+    {2600, 1},    // 2.6V = 1%
+    {2700, 2},    // 2.7V = 2%
+    {2800, 3},    // 2.8V = 3%
+    {2900, 4},    // 2.9V = 4%
+    {3000, 5},    // 3.0V = 5%
+    {3100, 10},   // 3.1V = 10%
+    {3200, 15},   // 3.2V = 15%
+    {3300, 25},   // 3.3V = 25%
+    {3400, 35},   // 3.4V = 35%
+    {3500, 45},   // 3.5V = 45%
+    {3600, 55},   // 3.6V = 55%
+    {3700, 65},   // 3.7V = 65%
+    {3800, 75},   // 3.8V = 75%
+    {3900, 85},   // 3.9V = 85%
+    {4000, 95},   // 4.0V = 95%
+    {4100, 98},   // 4.1V = 98%
+    {4200, 100}   // 4.2V = 100%
+  };
+  
+  uint8_t batteryPercentage = 0;
+  
+  // Find the appropriate range and interpolate
+  for (int i = 0; i < 17; i++) {
+    if (batteryMilliVolts >= liionCurve[i].voltage && batteryMilliVolts <= liionCurve[i+1].voltage) {
+      // Linear interpolation between two points
+      uint16_t voltageRange = liionCurve[i+1].voltage - liionCurve[i].voltage;
+      uint8_t percentageRange = liionCurve[i+1].percentage - liionCurve[i].percentage;
+      uint16_t voltageOffset = batteryMilliVolts - liionCurve[i].voltage;
+      
+      batteryPercentage = liionCurve[i].percentage + (voltageOffset * percentageRange) / voltageRange;
+      break;
+    }
+  }
+  
+  // Handle edge cases
+  if (batteryMilliVolts < liionCurve[0].voltage) batteryPercentage = 0;
+  if (batteryMilliVolts > liionCurve[17].voltage) batteryPercentage = 100;
 
   // battery icon
   int iconWidth = 24;
@@ -167,6 +201,13 @@ void UITask::renderBatteryIndicator(uint16_t batteryMilliVolts) {
   // fill the battery based on the percentage
   int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
   _display->fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
+
+  // display voltage next to battery icon
+  char voltageText[8];
+  sprintf(voltageText, "%.2fV", batteryMilliVolts / 1000.0f);
+  _display->setTextSize(1);
+  _display->setCursor(iconX - 35, iconY + 2);
+  _display->print(voltageText);
 }
 
 void UITask::renderCurrScreen() {
