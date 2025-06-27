@@ -1,5 +1,9 @@
 #include "EnvironmentSensorManager.h"
 
+#if ENV_INCLUDE_GPS
+#include <helpers/BaseChatMesh.h>  // Include full definition for method calls
+#endif
+
 #if ENV_INCLUDE_AHTX0
 #define TELEM_AHTX_ADDRESS      0x38      // AHT10, AHT20 temperature and humidity sensor I2C address
 #include <Adafruit_AHTX0.h>
@@ -253,7 +257,31 @@ void EnvironmentSensorManager::loop() {
     if (gps_active && _location->isValid()) {
       node_lat = ((double)_location->getLatitude())/1000000.;
       node_lon = ((double)_location->getLongitude())/1000000.;
-      MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
+      MESH_DEBUG_PRINTLN("GPS: lat %f lon %f", node_lat, node_lon);
+      
+      // Check if location has changed significantly (smaller threshold for testing)
+      double lat_diff = abs(node_lat - last_reported_lat);
+      double lon_diff = abs(node_lon - last_reported_lon);
+
+      if (_mesh && (lat_diff > 0.00001 || lon_diff > 0.00001 || 
+          (last_reported_lat == 0.0 && last_reported_lon == 0.0))) {
+        // Update mesh with new location for automatic sharing
+        MESH_DEBUG_PRINTLN("GPS: Updating mesh location: lat=%.6f, lng=%.6f (diff: %.6f, %.6f)", 
+                          node_lat, node_lon, lat_diff, lon_diff);
+        _mesh->setCurrentLocation(node_lat, node_lon);
+        last_reported_lat = node_lat;
+        last_reported_lon = node_lon;
+      } else if (_mesh) {
+        MESH_DEBUG_PRINTLN("GPS: Location change too small (%.6f, %.6f), not updating mesh", lat_diff, lon_diff);
+      } else {
+        MESH_DEBUG_PRINTLN("GPS: No mesh instance available");
+      }
+    } else {
+      if (!gps_active) {
+        MESH_DEBUG_PRINTLN("GPS: GPS not active");
+      } else {
+        MESH_DEBUG_PRINTLN("GPS: Waiting for valid GPS fix...");
+      }
     }
     next_gps_update = millis() + 1000;
   }

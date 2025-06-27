@@ -1,5 +1,6 @@
 #include <helpers/BaseChatMesh.h>
 #include <Utils.h>
+#include <helpers/SensorManager.h>  // For telemetry permission constants
 
 #ifndef SERVER_RESPONSE_DELAY
   #define SERVER_RESPONSE_DELAY   300
@@ -7,6 +8,10 @@
 
 #ifndef TXT_ACK_DELAY
   #define TXT_ACK_DELAY     200
+#endif
+
+#ifndef LOCATION_SHARE_INTERVAL_MILLIS
+  #define LOCATION_SHARE_INTERVAL_MILLIS   (10 * 60 * 1000)  // 10 minutes default
 #endif
 
 mesh::Packet* BaseChatMesh::createSelfAdvert(const char* name) {
@@ -134,17 +139,68 @@ void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender
 
   if (type == PAYLOAD_TYPE_TXT_MSG && len > 5) {
     uint32_t timestamp;
-    memcpy(&timestamp, data, 4);  // timestamp (by sender's RTC clock - which could be wrong)
-    uint flags = data[4] >> 2;   // message attempt number, and other flags
+    memcpy(&timestamp, data, 4);
+    uint flags = data[4] >> 2;
 
     // len can be > original length, but 'text' will be padded with zeroes
     data[len] = 0; // need to make a C string again, with null terminator
 
     if (flags == TXT_TYPE_PLAIN) {
+      // Check for location update message format and preserve original for ACK
+      bool is_location_msg = false;
+      char original_msg[MAX_TEXT_LEN + 1];
+      if (len > 15) {
+        const char* msg_text = (const char*)&data[5];
+        if (strncmp(msg_text, "!!latlng!!", 10) == 0) {
+          is_location_msg = true;
+          // Save original message for ACK calculation
+          strcpy(original_msg, msg_text);
+          
+          // Parse latitude and longitude
+          const char* coords = msg_text + 10;
+          char* comma_pos = strchr(coords, ',');
+          if (comma_pos) {
+            *comma_pos = '\0'; // temporarily null-terminate lat
+            double lat = atof(coords);
+            double lng = atof(comma_pos + 1);
+            *comma_pos = ','; // restore comma
+            
+            // Update contact's location 
+            // If app shows -183.1318 when we store -183131800, it's dividing by 1e6
+            // So we need to store coordinates * 1e6 instead of * 1e7
+            from.gps_lat = (int32_t)(lat * 1e6);
+            from.gps_lon = (int32_t)(lng * 1e6);
+            from.lastmod = getRTCClock()->getCurrentTime();
+            
+            // Simulate that this contact just sent us a fresh advertisement
+            // so the app will update its display with the new location
+            onDiscoveredContact(from, false, packet->path_len, packet->path);
+            
+            // Don't show location messages in chat - process silently
+            // Skip calling onMessageRecv for location messages
+            goto process_ack;
+          } else {
+            // Parse failed - show debug info
+            char debug_msg[128];
+            snprintf(debug_msg, sizeof(debug_msg), "[DEBUG] Location parse failed for: %s (no comma found)", msg_text);
+            strcpy((char*)&data[5], debug_msg);
+          }
+        }
+      }
+
       onMessageRecv(from, packet, timestamp, (const char *) &data[5]);  // let UI know
 
+      process_ack:
       uint32_t ack_hash;    // calc truncated hash of the message timestamp + text + sender pub_key, to prove to sender that we got it
-      mesh::Utils::sha256((uint8_t *) &ack_hash, 4, data, 5 + strlen((char *)&data[5]), from.id.pub_key, PUB_KEY_SIZE);
+      if (is_location_msg) {
+        // Use original message for ACK calculation to match sender's expectation
+        uint8_t temp_data[5 + MAX_TEXT_LEN];
+        memcpy(temp_data, data, 5);  // copy timestamp and flags
+        strcpy((char*)&temp_data[5], original_msg);  // restore original message
+        mesh::Utils::sha256((uint8_t *) &ack_hash, 4, temp_data, 5 + strlen(original_msg), from.id.pub_key, PUB_KEY_SIZE);
+      } else {
+        mesh::Utils::sha256((uint8_t *) &ack_hash, 4, data, 5 + strlen((char *)&data[5]), from.id.pub_key, PUB_KEY_SIZE);
+      }
 
       if (packet->isRouteFlood()) {
         // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the ACK
@@ -737,9 +793,93 @@ void BaseChatMesh::loop() {
     txt_send_timeout = 0;
   }
 
+  // Check if it's time to send location updates
+  if (location_share_enabled && location_share_interval > 0 && 
+      millisHasNowPassed(next_location_share_time)) {
+    sendLocationUpdates();
+    next_location_share_time = futureMillis(location_share_interval);
+  }
+
   if (_pendingLoopback) {
     onRecvPacket(_pendingLoopback);  // loop-back, as if received over radio
     releasePacket(_pendingLoopback);   // undo the obtainNewPacket()
     _pendingLoopback = NULL;
   }
+}
+
+void BaseChatMesh::setLocationSharingEnabled(bool enabled) {
+  location_share_enabled = enabled;
+  if (enabled && location_share_interval > 0) {
+    next_location_share_time = futureMillis(location_share_interval);
+  }
+}
+
+void BaseChatMesh::setLocationSharingInterval(uint32_t interval_millis) {
+  location_share_interval = interval_millis;
+  if (location_share_enabled && interval_millis > 0) {
+    next_location_share_time = futureMillis(interval_millis);
+  }
+}
+
+void BaseChatMesh::setCurrentLocation(double lat, double lng) {
+  current_lat = lat;
+  current_lng = lng;
+  has_current_location = true;
+  last_location_update = millis();  // Use millis() instead of RTC time
+  MESH_DEBUG_PRINTLN("Location sharing: Set location lat=%.6f, lng=%.6f", lat, lng);
+}
+
+void BaseChatMesh::sendLocationUpdates() {
+  MESH_DEBUG_PRINTLN("Location sharing: sendLocationUpdates called");
+  
+  if (!has_current_location) {
+    MESH_DEBUG_PRINTLN("Location sharing: No GPS coordinates available");
+    return; // No GPS coordinates available
+  }
+
+  // Check if location data is fresh (within last hour)
+  uint32_t now = millis();
+  if (now - last_location_update > 3600000) { // 1 hour in milliseconds
+    MESH_DEBUG_PRINTLN("Location sharing: Location data is stale (%d ms old)", now - last_location_update);
+    return; // Location data is stale
+  }
+
+  char location_msg[64];
+  snprintf(location_msg, sizeof(location_msg), "!!latlng!!%.6f,%.6f", current_lat, current_lng);
+  MESH_DEBUG_PRINTLN("Location sharing: Sending message: %s", location_msg);
+
+  int contacts_with_permission = 0;
+  int successful_sends = 0;
+  
+  // Send to all contacts with location permission
+  for (int i = 0; i < num_contacts; i++) {
+    ContactInfo& contact = contacts[i];
+    
+    // Check if this contact has location sharing permission
+    if (hasLocationPermission(contact)) {
+      contacts_with_permission++;
+      uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+      uint32_t expected_ack, est_timeout;
+      
+      // Send the location message
+      int result = sendMessage(contact, timestamp, 0, location_msg, expected_ack, est_timeout);
+      
+      if (result != MSG_SEND_FAILED) {
+        successful_sends++;
+        MESH_DEBUG_PRINTLN("Location sharing: Sent to %s (result=%d)", contact.name, result);
+      } else {
+        MESH_DEBUG_PRINTLN("Location sharing: Failed to send to %s", contact.name);
+      }
+    }
+  }
+  
+  MESH_DEBUG_PRINTLN("Location sharing: %d contacts with permission, %d successful sends", 
+                     contacts_with_permission, successful_sends);
+}
+
+bool BaseChatMesh::hasLocationPermission(const ContactInfo& contact) const {
+  // Check if this contact has location sharing permission
+  // The flags field stores permission bits where bit 1 is the location permission
+  // Bit 0 is typically used for "favorite" status, so location permission is bit 1
+  return (contact.flags & TELEM_PERM_LOCATION) != 0;
 }

@@ -7,6 +7,10 @@
 
 #define MAX_TEXT_LEN    (10*CIPHER_BLOCK_SIZE)  // must be LESS than (MAX_PACKET_PAYLOAD - 4 - CIPHER_MAC_SIZE - 1)
 
+#ifndef LOCATION_SHARE_INTERVAL_MILLIS
+  #define LOCATION_SHARE_INTERVAL_MILLIS   (10 * 1000)
+#endif
+
 #include "ContactInfo.h"
 
 #define MAX_SEARCH_RESULTS   8
@@ -152,4 +156,21 @@ public:
   int findChannelIdx(const mesh::GroupChannel& ch);
 
   void loop();
+
+  // Location sharing functionality
+  void setLocationSharingEnabled(bool enabled);
+  void setLocationSharingInterval(uint32_t interval_millis);
+  void setCurrentLocation(double lat, double lng);
+
+private:
+  bool location_share_enabled = true;  // Enable by default
+  uint32_t location_share_interval = LOCATION_SHARE_INTERVAL_MILLIS;
+  uint32_t next_location_share_time = 0;
+  double current_lat = 0.0;
+  double current_lng = 0.0;
+  bool has_current_location = false;
+  uint32_t last_location_update = 0;  // This should match millis() type
+
+  void sendLocationUpdates();
+  bool hasLocationPermission(const ContactInfo& contact) const;
 };

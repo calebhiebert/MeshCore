@@ -185,6 +185,14 @@ void setup() {
 
   sensors.begin();
 
+  #if ENV_INCLUDE_GPS
+  // Connect GPS location updates to mesh for automatic location sharing
+  sensors.setMeshForLocationSharing(&the_mesh);
+  // Force enable location sharing for testing
+  the_mesh.setLocationSharingEnabled(true);
+  the_mesh.setLocationSharingInterval(1000 * 10);
+  #endif
+
 #ifdef DISPLAY_CLASS
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif

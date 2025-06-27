@@ -8,6 +8,8 @@
 
 #define TELEM_CHANNEL_SELF   1   // LPP data channel for 'self' device
 
+class BaseChatMesh;  // Forward declaration
+
 class SensorManager {
 public:
   double node_lat, node_lon;  // modify these, if you want to affect Advert location
@@ -21,4 +23,5 @@ public:
   virtual const char* getSettingName(int i) const { return NULL; }
   virtual const char* getSettingValue(int i) const { return NULL; }
   virtual bool setSettingValue(const char* name, const char* value) { return false; }
+  virtual void setMesh(BaseChatMesh* mesh) { }  // Override in sensor managers that support location sharing
 };

@@ -4,6 +4,9 @@
 #include <helpers/SensorManager.h>
 #include <helpers/sensors/LocationProvider.h>
 
+// Forward declaration
+class BaseChatMesh;
+
 class EnvironmentSensorManager : public SensorManager {
 protected:
   int next_available_channel = TELEM_CHANNEL_SELF + 1;
@@ -18,6 +21,9 @@ protected:
 
   #if ENV_INCLUDE_GPS
   LocationProvider* _location;
+  BaseChatMesh* _mesh = nullptr;  // For location sharing callback
+  double last_reported_lat = 0.0;
+  double last_reported_lon = 0.0;
   void start_gps();
   void stop_gps();
   void initBasicGPS();
@@ -27,6 +33,7 @@ protected:
 public:
   #if ENV_INCLUDE_GPS
   EnvironmentSensorManager(LocationProvider &location): _location(&location){};
+  void setMeshForLocationSharing(BaseChatMesh* mesh) { _mesh = mesh; }
   #else
   EnvironmentSensorManager(){};
   #endif
