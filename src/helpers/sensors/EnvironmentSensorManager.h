@@ -13,9 +13,10 @@ protected:
 
   bool AHTX0_initialized = false;
   bool BME280_initialized = false;
+  bool BMP280_initialized = false;
   bool INA3221_initialized = false;
   bool INA219_initialized = false;
-  
+
   bool gps_detected = false;
   bool gps_active = false;
 
@@ -38,7 +39,7 @@ public:
   EnvironmentSensorManager(){};
   #endif
   bool begin() override;
-  bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;  
+  bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
   #if ENV_INCLUDE_GPS
   void loop() override;
   #endif
