@@ -787,6 +787,11 @@ bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
 void BaseChatMesh::loop() {
   Mesh::loop();
 
+  // Initialize location marker on first loop iteration
+  if (!location_marker_initialized) {
+    initializeLocationMarker();
+  }
+
   if (txt_send_timeout && millisHasNowPassed(txt_send_timeout)) {
     // failed to get an ACK
     onSendTimeout();
@@ -827,6 +832,19 @@ void BaseChatMesh::setCurrentLocation(double lat, double lng) {
   has_current_location = true;
   last_location_update = millis();  // Use millis() instead of RTC time
   MESH_DEBUG_PRINTLN("Location sharing: Set location lat=%.6f, lng=%.6f", lat, lng);
+}
+
+void BaseChatMesh::triggerImmediateLocationShare() {
+  if (location_share_enabled && has_current_location) {
+    MESH_DEBUG_PRINTLN("Location sharing: Triggering immediate location share");
+    sendLocationUpdates();
+  } else {
+    if (!location_share_enabled) {
+      MESH_DEBUG_PRINTLN("Location sharing: Immediate share requested but location sharing is disabled");
+    } else {
+      MESH_DEBUG_PRINTLN("Location sharing: Immediate share requested but no current location available");
+    }
+  }
 }
 
 void BaseChatMesh::sendLocationUpdates() {
@@ -885,4 +903,121 @@ bool BaseChatMesh::hasLocationPermission(const ContactInfo& contact) const {
   // The flags field stores permission bits where bit 1 is the location permission
   // Bit 0 is typically used for "favorite" status, so location permission is bit 1
   return (contact.flags & TELEM_PERM_LOCATION) != 0;
+}
+
+bool BaseChatMesh::initializeLocationMarker() {
+  if (location_marker_initialized) {
+    return true; // Already initialized
+  }
+
+  // Create a deterministic identity for the location marker
+  uint8_t fake_private_key[32];
+  memset(fake_private_key, 0x42, sizeof(fake_private_key)); // Deterministic fake key
+  
+  // Modify the key slightly to make it unique for location marker
+  const char* marker_name = "📍";
+  for (int i = 0; i < strlen(marker_name) && i < 32; i++) {
+    fake_private_key[i] ^= marker_name[i];
+  }
+  
+  location_marker_identity = mesh::Identity(fake_private_key);
+  
+  // Check if this contact already exists
+  location_marker_contact = lookupContactByPubKey(location_marker_identity.pub_key, PUB_KEY_SIZE);
+  
+  if (!location_marker_contact) {
+    // Create new location marker contact
+    ContactInfo marker_contact;
+    memset(&marker_contact, 0, sizeof(marker_contact));
+    
+    marker_contact.id = location_marker_identity;
+    strcpy(marker_contact.name, marker_name);
+    marker_contact.type = ADV_TYPE_CHAT;
+    marker_contact.flags = 0x01; // Mark as favorite so it shows prominently
+    marker_contact.out_path_len = 0; // Zero hop (local)
+    marker_contact.gps_lat = 0;
+    marker_contact.gps_lon = 0;
+    marker_contact.last_advert_timestamp = getRTCClock()->getCurrentTime();
+    marker_contact.lastmod = getRTCClock()->getCurrentTime();
+    
+    if (addContact(marker_contact)) {
+      location_marker_contact = &contacts[num_contacts - 1];
+      MESH_DEBUG_PRINTLN("Location marker contact '📍' created successfully");
+    } else {
+      MESH_DEBUG_PRINTLN("Failed to create location marker contact - contacts table full");
+      return false;
+    }
+  } else {
+    MESH_DEBUG_PRINTLN("Location marker contact '📍' already exists");
+  }
+  
+  location_marker_initialized = true;
+  return true;
+}
+
+bool BaseChatMesh::createLocationMarker(const char* name, double lat, double lng) {
+  if (!initializeLocationMarker()) {
+    return false;
+  }
+  
+  // Update the marker contact's location
+  if (location_marker_contact) {
+    location_marker_contact->gps_lat = (int32_t)(lat * 1e6);
+    location_marker_contact->gps_lon = (int32_t)(lng * 1e6);
+    location_marker_contact->last_advert_timestamp = getRTCClock()->getCurrentTime();
+    location_marker_contact->lastmod = getRTCClock()->getCurrentTime();
+    
+    // Store the last marker location 
+    last_marker_lat = lat;
+    last_marker_lng = lng;
+    
+    MESH_DEBUG_PRINTLN("Location marker '📍' updated to lat=%.6f, lng=%.6f", lat, lng);
+    MESH_DEBUG_PRINTLN("Location marker: Emitting fake advertisement for GPS position");
+    
+    // Send a fake advertisement to simulate location sharing
+    return sendLocationMarkerAdvert(name, lat, lng);
+  }
+  
+  return false;
+}
+
+bool BaseChatMesh::sendLocationMarkerAdvert(const char* name, double lat, double lng) {
+  if (!location_marker_contact) {
+    return false;
+  }
+  
+  // Create advertisement data for the location marker
+  uint8_t app_data[MAX_ADVERT_DATA_SIZE];
+  uint8_t app_data_len;
+  {
+    AdvertDataBuilder builder(ADV_TYPE_CHAT, location_marker_contact->name, lat, lng);
+    app_data_len = builder.encodeTo(app_data);
+  }
+  
+  // Create a fake packet that appears to come from the location marker
+  auto packet = obtainNewPacket();
+  if (!packet) {
+    MESH_DEBUG_PRINTLN("Location marker: Failed to obtain packet for fake advertisement");
+    return false;
+  }
+  
+  // Use a unique timestamp that's always newer than the last one
+  // This prevents replay attack detection
+  uint32_t fake_timestamp = getRTCClock()->getCurrentTimeUnique();
+  if (fake_timestamp <= location_marker_last_timestamp) {
+    fake_timestamp = location_marker_last_timestamp + 1;
+  }
+  location_marker_last_timestamp = fake_timestamp;
+  
+  MESH_DEBUG_PRINTLN("Location marker: Simulating advertisement reception from '📍' contact");
+  MESH_DEBUG_PRINTLN("Location marker: Fake advert contains lat=%.6f, lng=%.6f", lat, lng);
+  
+  // Simulate the advertisement reception process
+  // This will trigger the normal contact discovery/update process
+  onAdvertRecv(packet, location_marker_identity, fake_timestamp, app_data, app_data_len);
+  
+  releasePacket(packet);
+  
+  MESH_DEBUG_PRINTLN("Location marker: Fake advertisement processed successfully");
+  return true;
 }

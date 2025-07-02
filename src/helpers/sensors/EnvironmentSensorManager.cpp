@@ -288,23 +288,8 @@ void EnvironmentSensorManager::loop() {
       node_lon = ((double)_location->getLongitude())/1000000.;
       MESH_DEBUG_PRINTLN("GPS: lat %f lon %f", node_lat, node_lon);
       
-      // Check if location has changed significantly (smaller threshold for testing)
-      double lat_diff = abs(node_lat - last_reported_lat);
-      double lon_diff = abs(node_lon - last_reported_lon);
-
-      if (_mesh && (lat_diff > 0.00001 || lon_diff > 0.00001 || 
-          (last_reported_lat == 0.0 && last_reported_lon == 0.0))) {
-        // Update mesh with new location for automatic sharing
-        MESH_DEBUG_PRINTLN("GPS: Updating mesh location: lat=%.6f, lng=%.6f (diff: %.6f, %.6f)", 
-                          node_lat, node_lon, lat_diff, lon_diff);
-        _mesh->setCurrentLocation(node_lat, node_lon);
-        last_reported_lat = node_lat;
-        last_reported_lon = node_lon;
-      } else if (_mesh) {
-        MESH_DEBUG_PRINTLN("GPS: Location change too small (%.6f, %.6f), not updating mesh", lat_diff, lon_diff);
-      } else {
-        MESH_DEBUG_PRINTLN("GPS: No mesh instance available");
-      }
+      // Use the base class method to handle GPS updates (includes location sharing and marker updates)
+      onGPSUpdate();
     } else {
       if (!gps_active) {
         MESH_DEBUG_PRINTLN("GPS: GPS not active");

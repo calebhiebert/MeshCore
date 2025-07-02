@@ -193,6 +193,12 @@ void setup() {
   the_mesh.setLocationSharingInterval(1000 * 40);
   #endif
 
+  // Connect sensor manager to mesh for location marker functionality  
+  sensors.setMesh(&the_mesh);
+  
+  // Initialize location marker
+  the_mesh.initializeLocationMarker();
+
 #ifdef DISPLAY_CLASS
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif

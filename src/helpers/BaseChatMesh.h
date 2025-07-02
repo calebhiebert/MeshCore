@@ -164,6 +164,11 @@ public:
   void setLocationSharingEnabled(bool enabled);
   void setLocationSharingInterval(uint32_t interval_millis);
   void setCurrentLocation(double lat, double lng);
+  void triggerImmediateLocationShare();  // Trigger location sharing immediately
+
+  // Location marker functionality
+  bool createLocationMarker(const char* name, double lat, double lng);
+  bool initializeLocationMarker();
 
 private:
   bool location_share_enabled = true;  // Enable by default
@@ -174,6 +179,15 @@ private:
   bool has_current_location = false;
   uint32_t last_location_update = 0;  // This should match millis() type
 
+  // Location marker state
+  ContactInfo* location_marker_contact = nullptr;
+  mesh::Identity location_marker_identity;
+  double last_marker_lat = 0.0;
+  double last_marker_lng = 0.0;
+  bool location_marker_initialized = false;
+  uint32_t location_marker_last_timestamp = 0;  // Track last timestamp to prevent replay detection
+
   void sendLocationUpdates();
   bool hasLocationPermission(const ContactInfo& contact) const;
+  bool sendLocationMarkerAdvert(const char* name, double lat, double lng);
 };

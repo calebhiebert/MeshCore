@@ -202,12 +202,13 @@ void UITask::renderBatteryIndicator(uint16_t batteryMilliVolts) {
   int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
   _display->fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
 
-  // display voltage next to battery icon
-  char voltageText[8];
-  sprintf(voltageText, "%.2fV", batteryMilliVolts / 1000.0f);
+  // display percentage next to battery icon
+  char percentageText[8];
+  sprintf(percentageText, "%d%%", batteryPercentage);
   _display->setTextSize(1);
-  _display->setCursor(iconX - 35, iconY + 2);
-  _display->print(voltageText);
+  uint16_t textWidth = _display->getTextWidth(percentageText);
+  _display->setCursor(iconX - textWidth - 3, iconY + 2);  // 3 pixel gap between text and icon
+  _display->print(percentageText);
 }
 
 void UITask::renderCurrScreen() {
