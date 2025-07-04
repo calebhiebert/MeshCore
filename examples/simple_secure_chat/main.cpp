@@ -287,6 +287,17 @@ protected:
     }
   }
 
+  // GPS location getter for location marker
+  bool getCurrentGPSLocation(double& lat, double& lng) override {
+    // Return stored GPS coordinates if available
+    if (_prefs.node_lat != 0.0 || _prefs.node_lon != 0.0) {
+      lat = _prefs.node_lat;
+      lng = _prefs.node_lon;
+      return true;
+    }
+    return false;
+  }
+
 public:
   MyMesh(mesh::Radio& radio, StdRNG& rng, mesh::RTCClock& rtc, SimpleMeshTables& tables)
      : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables)

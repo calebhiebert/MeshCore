@@ -1543,3 +1543,16 @@ bool MyMesh::advert() {
     return false;
   }
 }
+
+bool MyMesh::getCurrentGPSLocation(double& lat, double& lng) {
+  // Return current GPS coordinates from sensors if available
+  if (sensors.node_lat != 0.0 || sensors.node_lon != 0.0) {
+    lat = sensors.node_lat;
+    lng = sensors.node_lon;
+    MESH_DEBUG_PRINTLN("MyMesh: getCurrentGPSLocation returning lat=%.6f, lng=%.6f", lat, lng);
+    return true;
+  }
+  
+  MESH_DEBUG_PRINTLN("MyMesh: getCurrentGPSLocation - no GPS coordinates available");
+  return false;
+}

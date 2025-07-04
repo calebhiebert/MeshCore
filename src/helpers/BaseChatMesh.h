@@ -109,6 +109,9 @@ protected:
   // called when we send our location to others - override to store location in prefs and send self-advert
   virtual void onLocationSharing(double lat, double lng) { }
 
+  // called to get current GPS coordinates for location marker - override in subclass
+  virtual bool getCurrentGPSLocation(double& lat, double& lng) { return false; }
+
   // storage concepts, for sub-classes to override/implement
   virtual int  getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) { return 0; }  // not implemented
   virtual bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) { return false; }
@@ -186,8 +189,11 @@ private:
   double last_marker_lng = 0.0;
   bool location_marker_initialized = false;
   uint32_t location_marker_last_timestamp = 0;  // Track last timestamp to prevent replay detection
+  uint32_t next_location_marker_advert_time = 0;  // Timer for periodic fake adverts
+  static const uint32_t LOCATION_MARKER_ADVERT_INTERVAL = 5000;  // 5 seconds
 
   void sendLocationUpdates();
   bool hasLocationPermission(const ContactInfo& contact) const;
   bool sendLocationMarkerAdvert(const char* name, double lat, double lng);
+  bool isLocationMarkerContact(const ContactInfo& contact) const;  // Check if contact is the location marker
 };

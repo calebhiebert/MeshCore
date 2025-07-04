@@ -49,7 +49,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
       from = &contacts[i];
       if (timestamp <= from->last_advert_timestamp) {  // check for replay attacks!!
         MESH_DEBUG_PRINTLN("onAdvertRecv: Possible replay attack, name: %s", from->name);
-        return;
+        // return;
       }
       break;
     }
@@ -362,6 +362,12 @@ mesh::Packet* BaseChatMesh::composeMsgPacket(const ContactInfo& recipient, uint3
 }
 
 int  BaseChatMesh::sendMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text, uint32_t& expected_ack, uint32_t& est_timeout) {
+  // Block messages to the location marker contact
+  if (isLocationMarkerContact(recipient)) {
+    MESH_DEBUG_PRINTLN("Blocking message to location marker contact");
+    return MSG_SEND_FAILED;
+  }
+  
   mesh::Packet* pkt = composeMsgPacket(recipient, timestamp, attempt, text, expected_ack);
   if (pkt == NULL) return MSG_SEND_FAILED;
 
@@ -381,6 +387,12 @@ int  BaseChatMesh::sendMessage(const ContactInfo& recipient, uint32_t timestamp,
 }
 
 int  BaseChatMesh::sendCommandData(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text, uint32_t& est_timeout) {
+  // Block commands to the location marker contact
+  if (isLocationMarkerContact(recipient)) {
+    MESH_DEBUG_PRINTLN("Blocking command data to location marker contact");
+    return MSG_SEND_FAILED;
+  }
+  
   int text_len = strlen(text);
   if (text_len > MAX_TEXT_LEN) return MSG_SEND_FAILED;
 
@@ -459,6 +471,12 @@ bool BaseChatMesh::importContact(const uint8_t src_buf[], uint8_t len) {
 }
 
 int BaseChatMesh::sendLogin(const ContactInfo& recipient, const char* password, uint32_t& est_timeout) {
+  // Block login attempts to the location marker contact
+  if (isLocationMarkerContact(recipient)) {
+    MESH_DEBUG_PRINTLN("Blocking login to location marker contact");
+    return MSG_SEND_FAILED;
+  }
+  
   int tlen;
   uint8_t temp[24];
   uint32_t now = getRTCClock()->getCurrentTimeUnique();
@@ -491,6 +509,12 @@ int BaseChatMesh::sendLogin(const ContactInfo& recipient, const char* password, 
 }
 
 int  BaseChatMesh::sendRequest(const ContactInfo& recipient, uint8_t req_type, uint32_t& tag, uint32_t& est_timeout) {
+  // Block requests to the location marker contact
+  if (isLocationMarkerContact(recipient)) {
+    MESH_DEBUG_PRINTLN("Blocking request to location marker contact");
+    return MSG_SEND_FAILED;
+  }
+  
   uint8_t temp[13];
   tag = getRTCClock()->getCurrentTimeUnique();
   memcpy(temp, &tag, 4);   // mostly an extra blob to help make packet_hash unique
@@ -790,6 +814,8 @@ void BaseChatMesh::loop() {
   // Initialize location marker on first loop iteration
   if (!location_marker_initialized) {
     initializeLocationMarker();
+    // Set up the first periodic advert timer
+    next_location_marker_advert_time = futureMillis(LOCATION_MARKER_ADVERT_INTERVAL);
   }
 
   if (txt_send_timeout && millisHasNowPassed(txt_send_timeout)) {
@@ -803,6 +829,40 @@ void BaseChatMesh::loop() {
       millisHasNowPassed(next_location_share_time)) {
     sendLocationUpdates();
     next_location_share_time = futureMillis(location_share_interval);
+  }
+
+  // Check if it's time to send periodic location marker advert
+  if (location_marker_initialized && location_marker_contact && 
+      millisHasNowPassed(next_location_marker_advert_time)) {
+    // Get current GPS coordinates for the location marker
+    double current_gps_lat, current_gps_lng;
+    if (getCurrentGPSLocation(current_gps_lat, current_gps_lng)) {
+      // Send periodic fake advert for location marker with current GPS coordinates
+      MESH_DEBUG_PRINTLN("Sending periodic location marker advert with current GPS: lat=%.6f, lng=%.6f", current_gps_lat, current_gps_lng);
+      
+      // Update the stored location for the location marker
+      last_marker_lat = current_gps_lat;
+      last_marker_lng = current_gps_lng;
+      
+      // Update the marker contact's location
+      if (location_marker_contact) {
+        location_marker_contact->gps_lat = (int32_t)(current_gps_lat * 1e6);
+        location_marker_contact->gps_lon = (int32_t)(current_gps_lng * 1e6);
+        location_marker_contact->last_advert_timestamp = getRTCClock()->getCurrentTime();
+        location_marker_contact->lastmod = getRTCClock()->getCurrentTime();
+      }
+      
+      sendLocationMarkerAdvert("📍", current_gps_lat, current_gps_lng);
+    } else {
+      // No GPS available, use last known location if available
+      if (last_marker_lat != 0.0 || last_marker_lng != 0.0) {
+        MESH_DEBUG_PRINTLN("Sending periodic location marker advert with last known GPS: lat=%.6f, lng=%.6f", last_marker_lat, last_marker_lng);
+        sendLocationMarkerAdvert("📍", last_marker_lat, last_marker_lng);
+      } else {
+        MESH_DEBUG_PRINTLN("No GPS coordinates available for location marker advert");
+      }
+    }
+    next_location_marker_advert_time = futureMillis(LOCATION_MARKER_ADVERT_INTERVAL);
   }
 
   if (_pendingLoopback) {
@@ -952,6 +1012,10 @@ bool BaseChatMesh::initializeLocationMarker() {
   }
   
   location_marker_initialized = true;
+  
+  // Set up the first periodic advert timer
+  next_location_marker_advert_time = futureMillis(LOCATION_MARKER_ADVERT_INTERVAL);
+  
   return true;
 }
 
@@ -1020,4 +1084,10 @@ bool BaseChatMesh::sendLocationMarkerAdvert(const char* name, double lat, double
   
   MESH_DEBUG_PRINTLN("Location marker: Fake advertisement processed successfully");
   return true;
+}
+
+bool BaseChatMesh::isLocationMarkerContact(const ContactInfo& contact) const {
+  return location_marker_initialized && 
+         location_marker_contact && 
+         location_marker_identity.matches(contact.id);
 }

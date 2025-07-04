@@ -129,6 +129,9 @@ protected:
   // Location sharing callback
   void onLocationSharing(double lat, double lng) override;
 
+  // GPS location getter for location marker
+  bool getCurrentGPSLocation(double& lat, double& lng) override;
+
   // DataStoreHost methods
   bool onContactLoaded(const ContactInfo& contact) override { return addContact(contact); }
   bool getContactForSave(uint32_t idx, ContactInfo& contact) override { return getContactByIdx(idx, contact); }
